@@ -4,24 +4,31 @@ use bevy::{
     log::LogPlugin,
     prelude::*,
     reflect::TypePath,
+    window::PrimaryWindow,
 };
 use bevy_utils::BoxedFuture;
 use serde::Deserialize;
 
-const BLOCK_SIZE: f32 = 30.;
+const GAME_SCALE: f32 = 1.5;
+const BLOCK_SIZE: f32 = GAME_SCALE * 30.;
 const MAP_SIZE: usize = 20;
-const GAME_WIDTH: f32 = BLOCK_SIZE * MAP_SIZE as f32 + BLOCK_SIZE;
-const GAME_HEIGHT: f32 = BLOCK_SIZE * MAP_SIZE as f32 + BLOCK_SIZE;
-const GAME_TRANSFORM_X: f32 = -GAME_WIDTH / 2.;
-const GAME_TRANSFORM_Y: f32 = -GAME_HEIGHT / 2.;
+const GAME_TITLE: &str = "Push Box Game";
+const GAME_MENU_WIDTH: f32 = GAME_SCALE * 200.;
+//const GAME_MENU_HEIGHT: f32 = GAME_SCALE * 600.;
 const GAME_LEVEL_COUNT: usize = 50;
-const INPUT_INTERVAL: f32 = 200.;
+const INPUT_INTERVAL: f32 = 100.;
+
+const MAP_SIZE_F32: f32 = MAP_SIZE as f32;
+const GAME_WIDTH: f32 = BLOCK_SIZE * MAP_SIZE_F32 + GAME_MENU_WIDTH;
+const GAME_HEIGHT: f32 = BLOCK_SIZE * MAP_SIZE_F32;
+const GAME_TRANSFORM_X: f32 = -BLOCK_SIZE * (MAP_SIZE_F32 - 1.) / 2. - GAME_MENU_WIDTH / 2.;
+const GAME_TRANSFORM_Y: f32 = -BLOCK_SIZE * (MAP_SIZE_F32 - 1.) / 2.;
+const GAME_MENU_TRANSFORM_X: f32 = BLOCK_SIZE * MAP_SIZE_F32 / 2.;
+const GAME_MENU_TRANSFORM_Y: f32 = 0.;
 
 // block type
-#[allow(dead_code)]
-const BLOCK_TYPE_BLANK: usize = 0;
-#[allow(dead_code)]
-const BLOCK_TYPE_WALL: usize = 1;
+//const BLOCK_TYPE_BLANK: usize = 0;
+//const BLOCK_TYPE_WALL: usize = 1;
 const BLOCK_TYPE_GROUND: usize = 2;
 const BLOCK_TYPE_BOX: usize = 3;
 const BLOCK_TYPE_AIM: usize = 4;
@@ -144,12 +151,32 @@ fn main() {
         .init_asset::<MapAsset>()
         .init_asset_loader::<MapAssetsLoader>()
         .add_systems(Startup, resource_setup)
+        .add_systems(Startup, menu_setup.after(resource_setup))
+        .add_systems(Update, menu_update.after(menu_setup))
         .add_systems(Update, game_update.after(resource_setup))
         .add_systems(Update, keyboard_input.after(resource_setup))
         .run();
 }
 
-fn resource_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn menu_setup(mut commands: Commands, imagehandles: Res<ImageHandles>) {
+    commands.spawn(SpriteBundle {
+        texture: imagehandles.textures[11].clone(),
+        transform: Transform {
+            translation: Vec3::new(GAME_MENU_TRANSFORM_X, GAME_MENU_TRANSFORM_Y, 0.),
+            scale: Vec3::new(GAME_SCALE, GAME_SCALE, 1.),
+            ..default()
+        },
+        ..default()
+    });
+}
+
+fn menu_update() {}
+
+fn resource_setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+) {
     debug!("resource setup");
     commands.insert_resource(StepIntervalTimer(Timer::from_seconds(
         INPUT_INTERVAL / 1000.,
@@ -172,6 +199,13 @@ fn resource_setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     // Sound
     let sound = asset_server.load("sounds/breakout_collision.ogg");
     commands.insert_resource(SoundHandle { sound });
+
+    // window
+    for mut window in windows.iter_mut() {
+        window.title = GAME_TITLE.to_owned();
+        window.resolution.set(GAME_WIDTH, GAME_HEIGHT);
+        window.resizable = false;
+    }
 
     commands.insert_resource(Game::default());
     commands.spawn(Camera2dBundle::default());
@@ -208,6 +242,7 @@ fn game_update(
                                     texture: imagehandles.textures[game.map[i][j]].clone(),
                                     transform: Transform {
                                         translation: Vec3::new(x, y, 0.),
+                                        scale: Vec3::new(GAME_SCALE, GAME_SCALE, 1.),
                                         ..default()
                                     },
                                     ..default()
