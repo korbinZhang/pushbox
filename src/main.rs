@@ -9,14 +9,17 @@ use bevy::{
 use bevy_utils::BoxedFuture;
 use serde::Deserialize;
 
-const GAME_SCALE: f32 = 1.5;
+const GAME_SCALE: f32 = 1.;
 const BLOCK_SIZE: f32 = GAME_SCALE * 30.;
 const MAP_SIZE: usize = 20;
 const GAME_TITLE: &str = "Push Box Game";
 const GAME_MENU_WIDTH: f32 = GAME_SCALE * 200.;
 //const GAME_MENU_HEIGHT: f32 = GAME_SCALE * 600.;
+const GAME_BUTTON_WIDTH: f32 = GAME_MENU_WIDTH / 2. * 0.88;
+const GAME_BUTTON_HEIGHT: f32 = GAME_BUTTON_WIDTH * 0.382;
+const GAME_BUTTON_INTERVAL: f32 = (GAME_MENU_WIDTH / 2. - GAME_BUTTON_WIDTH) / 3.;
 const GAME_LEVEL_COUNT: usize = 50;
-const INPUT_INTERVAL: f32 = 100.;
+const INPUT_INTERVAL: f32 = 200.;
 
 const MAP_SIZE_F32: f32 = MAP_SIZE as f32;
 const GAME_WIDTH: f32 = BLOCK_SIZE * MAP_SIZE_F32 + GAME_MENU_WIDTH;
@@ -38,11 +41,46 @@ const BLOCK_TYPE_PLAYER_LEFT: usize = 7;
 const BLOCK_TYPE_PLAYER_UP: usize = 8;
 const BLOCK_TYPE_BOX_AIM: usize = 9;
 
+const BUTTON_TEXT: [&str; 7] = ["PREV", "NEXT", "RESTART", "UP", "LEFT", "RIGHT", "DOWN"];
+const BUTTON_POSITION: [[f32; 2]; 7] = [
+    [
+        -GAME_BUTTON_WIDTH / 2. - GAME_BUTTON_INTERVAL / 2.,
+        2. * (GAME_BUTTON_HEIGHT + GAME_BUTTON_INTERVAL),
+    ],
+    [
+        GAME_BUTTON_WIDTH / 2. + GAME_BUTTON_INTERVAL / 2.,
+        2. * (GAME_BUTTON_HEIGHT + GAME_BUTTON_INTERVAL),
+    ],
+    [0., GAME_BUTTON_HEIGHT + GAME_BUTTON_INTERVAL],
+    [0., -1. * (GAME_BUTTON_HEIGHT + GAME_BUTTON_INTERVAL)],
+    [
+        -GAME_BUTTON_WIDTH / 2. - GAME_BUTTON_INTERVAL / 2.,
+        -2. * (GAME_BUTTON_HEIGHT + GAME_BUTTON_INTERVAL),
+    ],
+    [
+        GAME_BUTTON_WIDTH / 2. + GAME_BUTTON_INTERVAL / 2.,
+        -2. * (GAME_BUTTON_HEIGHT + GAME_BUTTON_INTERVAL),
+    ],
+    [0., -3. * (GAME_BUTTON_HEIGHT + GAME_BUTTON_INTERVAL)],
+];
+const BUTTON_KEY: [KeyCode; 7] = [
+    KeyCode::KeyP,
+    KeyCode::KeyN,
+    KeyCode::KeyR,
+    KeyCode::ArrowUp,
+    KeyCode::ArrowLeft,
+    KeyCode::ArrowRight,
+    KeyCode::ArrowDown,
+];
+
 #[derive(Component)]
 struct MapBlock {
     x: usize,
     y: usize,
 }
+
+#[derive(Component)]
+struct ButtonTag;
 
 #[derive(Resource, Default)]
 struct StepIntervalTimer(Timer);
@@ -168,9 +206,85 @@ fn menu_setup(mut commands: Commands, imagehandles: Res<ImageHandles>) {
         },
         ..default()
     });
+    for i in 0..7usize {
+        commands
+            .spawn(SpriteBundle {
+                sprite: Sprite {
+                    color: Color::GRAY,
+                    custom_size: Some(Vec2::new(GAME_BUTTON_WIDTH, GAME_BUTTON_HEIGHT)),
+                    ..default()
+                },
+                transform: Transform {
+                    translation: Vec3::new(
+                        GAME_MENU_TRANSFORM_X + BUTTON_POSITION[i][0],
+                        GAME_MENU_TRANSFORM_Y + BUTTON_POSITION[i][1],
+                        1.,
+                    ),
+                    ..default()
+                },
+                ..default()
+            })
+            .insert(ButtonTag)
+            .with_children(|parent| {
+                parent.spawn(SpriteBundle {
+                    sprite: Sprite {
+                        color: Color::rgb(0.3, 0.3, 0.3),
+                        custom_size: Some(Vec2::new(
+                            GAME_BUTTON_WIDTH - GAME_SCALE * 7.,
+                            GAME_BUTTON_HEIGHT - GAME_SCALE * 7.,
+                        )),
+                        ..default()
+                    },
+                    ..default()
+                });
+                parent.spawn(Text2dBundle {
+                    text: Text::from_section(
+                        BUTTON_TEXT[i],
+                        TextStyle {
+                            font_size: GAME_SCALE * 20.,
+                            ..default()
+                        },
+                    ),
+                    ..default()
+                });
+            });
+    }
 }
 
-fn menu_update() {}
+fn menu_update(
+    mouse_input: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut game: ResMut<Game>,
+    time: Res<Time>,
+    mut timer: ResMut<StepIntervalTimer>,
+) {
+    if !timer.0.tick(time.delta()).finished() {
+        return;
+    }
+    if mouse_input.just_pressed(MouseButton::Left) {
+        for window in windows.iter() {
+            if let Some(cursor_position) = window.cursor_position() {
+                for i in 0..7usize {
+                    let cursor_x = cursor_position.x - GAME_WIDTH / 2.;
+                    let cursor_y = GAME_HEIGHT / 2. - cursor_position.y;
+                    let x = [
+                        GAME_MENU_TRANSFORM_X + BUTTON_POSITION[i][0] - GAME_BUTTON_WIDTH / 2.,
+                        GAME_MENU_TRANSFORM_X + BUTTON_POSITION[i][0] + GAME_BUTTON_WIDTH / 2.,
+                    ];
+                    let y = [
+                        GAME_MENU_TRANSFORM_Y + BUTTON_POSITION[i][1] - GAME_BUTTON_HEIGHT / 2.,
+                        GAME_MENU_TRANSFORM_Y + BUTTON_POSITION[i][1] + GAME_BUTTON_HEIGHT / 2.,
+                    ];
+                    if cursor_x > x[0] && cursor_x < x[1] && cursor_y > y[0] && cursor_y < y[1] {
+                        game.action = Some(BUTTON_KEY[i]);
+                        timer.0.reset();
+                        game.update();
+                    }
+                }
+            }
+        }
+    }
+}
 
 fn resource_setup(
     mut commands: Commands,
