@@ -80,7 +80,7 @@ struct MapBlock {
 }
 
 #[derive(Component)]
-struct ButtonTag;
+struct LevelText;
 
 #[derive(Resource, Default)]
 struct StepIntervalTimer(Timer);
@@ -154,8 +154,10 @@ impl AssetLoader for MapAssetsLoader {
 
 #[derive(PartialEq)]
 enum GameStatus {
+    Init,
     StartPlaying,
     Playing,
+    ChangeLevel,
 }
 
 #[derive(Resource)]
@@ -174,7 +176,7 @@ impl Default for Game {
         Game {
             update: true,
             level: 1,
-            status: GameStatus::StartPlaying,
+            status: GameStatus::Init,
             map: [[0; MAP_SIZE]; MAP_SIZE],
             position: Vec2::new(0., 0.),
             position_type: BLOCK_TYPE_GROUND,
@@ -191,7 +193,7 @@ fn main() {
         .add_systems(Startup, resource_setup)
         .add_systems(Startup, menu_setup.after(resource_setup))
         .add_systems(Update, menu_update.after(menu_setup))
-        .add_systems(Update, game_update.after(resource_setup))
+        .add_systems(Update, game_update.after(menu_setup))
         .add_systems(Update, keyboard_input.after(resource_setup))
         .run();
 }
@@ -206,6 +208,24 @@ fn menu_setup(mut commands: Commands, imagehandles: Res<ImageHandles>) {
         },
         ..default()
     });
+    commands
+        .spawn(Text2dBundle {
+            text: Text::from_section(
+                "Level: 1",
+                TextStyle {
+                    font_size: GAME_SCALE * 25.,
+                    color: Color::BLUE,
+                    ..default()
+                },
+            ),
+            transform: Transform::from_xyz(
+                -GAME_WIDTH / 2. + GAME_SCALE * 80.,
+                GAME_HEIGHT / 2. - GAME_SCALE * 40.,
+                1.,
+            ),
+            ..default()
+        })
+        .insert(LevelText);
     for i in 0..7usize {
         commands
             .spawn(SpriteBundle {
@@ -224,7 +244,6 @@ fn menu_setup(mut commands: Commands, imagehandles: Res<ImageHandles>) {
                 },
                 ..default()
             })
-            .insert(ButtonTag)
             .with_children(|parent| {
                 parent.spawn(SpriteBundle {
                     sprite: Sprite {
@@ -333,6 +352,7 @@ fn game_update(
     asset_server: Res<AssetServer>,
     map_assets: Res<Assets<MapAsset>>,
     mut query: Query<(Entity, &MapBlock, &mut Handle<Image>)>,
+    mut text_query: Query<(&mut Text, &LevelText)>,
 ) {
     if !game.update {
         return;
@@ -340,36 +360,44 @@ fn game_update(
     debug!("game update");
     game.update = false;
     match game.status {
+        GameStatus::Init => {
+            for i in 0..MAP_SIZE {
+                for j in 0..MAP_SIZE {
+                    let x = (i as f32) * BLOCK_SIZE + GAME_TRANSFORM_X;
+                    let y = (j as f32) * BLOCK_SIZE + GAME_TRANSFORM_Y;
+                    commands
+                        .spawn(SpriteBundle {
+                            texture: imagehandles.textures[0].clone(),
+                            transform: Transform {
+                                translation: Vec3::new(x, y, 0.),
+                                scale: Vec3::new(GAME_SCALE, GAME_SCALE, 1.),
+                                ..default()
+                            },
+                            ..default()
+                        })
+                        .insert(MapBlock { x: i, y: j });
+                }
+            }
+            game.update = true;
+            game.status = GameStatus::StartPlaying;
+        }
         GameStatus::StartPlaying => {
             debug!("Start Playing");
+            game.update = true;
             match map_assets.get(&maphandle.map) {
                 Some(map) => {
                     debug!("load map {}.map success:", game.level);
                     game.map = map.value;
+                    game.position_type = BLOCK_TYPE_GROUND;
                     game.position = map.position;
-                    for i in 0..MAP_SIZE {
-                        for j in 0..MAP_SIZE {
-                            let x = (i as f32) * BLOCK_SIZE + GAME_TRANSFORM_X;
-                            let y = (j as f32) * BLOCK_SIZE + GAME_TRANSFORM_Y;
-                            commands
-                                .spawn(SpriteBundle {
-                                    texture: imagehandles.textures[game.map[i][j]].clone(),
-                                    transform: Transform {
-                                        translation: Vec3::new(x, y, 0.),
-                                        scale: Vec3::new(GAME_SCALE, GAME_SCALE, 1.),
-                                        ..default()
-                                    },
-                                    ..default()
-                                })
-                                .insert(MapBlock { x: i, y: j });
-                        }
-                    }
                     game.status = GameStatus::Playing;
                 }
                 _ => {
                     debug!("load map {}.map error", game.level);
-                    game.update = true;
                 }
+            }
+            for (mut text, _) in text_query.iter_mut() {
+                text.sections[0].value = format!("Level {}", game.level);
             }
         }
         GameStatus::Playing => {
@@ -381,14 +409,14 @@ fn game_update(
                             imagehandles.textures[game.map[mapblock.x][mapblock.y]].clone();
                     }
                 }
-            } else {
-                commands.insert_resource(MapHandle {
-                    map: asset_server.load(format!("maps/{}.map", game.level)),
-                });
-                for (entity, _, _) in query.iter_mut() {
-                    commands.entity(entity).despawn();
-                }
             }
+        }
+        GameStatus::ChangeLevel => {
+            commands.insert_resource(MapHandle {
+                map: asset_server.load(format!("maps/{}.map", game.level)),
+            });
+            game.update = true;
+            game.status = GameStatus::StartPlaying;
         }
     }
 }
@@ -517,7 +545,7 @@ impl Game {
             self.level = 1;
         }
         self.update = true;
-        self.status = GameStatus::StartPlaying;
+        self.status = GameStatus::ChangeLevel;
         return true;
     }
     fn update(&mut self) {
@@ -526,6 +554,26 @@ impl Game {
         }
         if let Some(action) = self.action {
             match action {
+                KeyCode::KeyP => {
+                    self.level = self.level - 1;
+                    if self.level == 0 {
+                        self.level = GAME_LEVEL_COUNT
+                    }
+                    self.update = true;
+                    self.status = GameStatus::ChangeLevel;
+                }
+                KeyCode::KeyN => {
+                    self.level = self.level + 1;
+                    if self.level > GAME_LEVEL_COUNT {
+                        self.level = 1;
+                    }
+                    self.update = true;
+                    self.status = GameStatus::ChangeLevel;
+                }
+                KeyCode::KeyR => {
+                    self.update = true;
+                    self.status = GameStatus::ChangeLevel;
+                }
                 KeyCode::ArrowLeft => {
                     self.step(Vec2::new(-1., 0.));
                 }
