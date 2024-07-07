@@ -1,6 +1,6 @@
 use bevy::{
     asset::{io::Reader, AssetLoader, AsyncReadExt, LoadContext},
-    input::ButtonInput,
+    input::{touch::TouchPhase, ButtonInput},
     log::LogPlugin,
     prelude::*,
     reflect::TypePath,
@@ -276,30 +276,62 @@ fn menu_update(
     mut game: ResMut<Game>,
     time: Res<Time>,
     mut timer: ResMut<StepIntervalTimer>,
+    mut touch: EventReader<TouchInput>,
 ) {
     if !timer.0.tick(time.delta()).finished() {
         return;
     }
+    let mut position = None;
     if mouse_input.just_pressed(MouseButton::Left) {
         for window in windows.iter() {
-            if let Some(cursor_position) = window.cursor_position() {
-                for i in 0..7usize {
-                    let cursor_x = cursor_position.x - GAME_WIDTH / 2.;
-                    let cursor_y = GAME_HEIGHT / 2. - cursor_position.y;
-                    let x = [
-                        GAME_MENU_TRANSFORM_X + BUTTON_POSITION[i][0] - GAME_BUTTON_WIDTH / 2.,
-                        GAME_MENU_TRANSFORM_X + BUTTON_POSITION[i][0] + GAME_BUTTON_WIDTH / 2.,
-                    ];
-                    let y = [
-                        GAME_MENU_TRANSFORM_Y + BUTTON_POSITION[i][1] - GAME_BUTTON_HEIGHT / 2.,
-                        GAME_MENU_TRANSFORM_Y + BUTTON_POSITION[i][1] + GAME_BUTTON_HEIGHT / 2.,
-                    ];
-                    if cursor_x > x[0] && cursor_x < x[1] && cursor_y > y[0] && cursor_y < y[1] {
-                        game.action = Some(BUTTON_KEY[i]);
-                        timer.0.reset();
-                        game.update();
-                    }
+            position = window.cursor_position();
+        }
+    }
+    for event in touch.read().into_iter() {
+        if TouchPhase::Started == event.phase {
+            position = Some(event.position);
+        }
+    }
+    if let Some(cursor_position) = position {
+        let cursor_x = cursor_position.x - GAME_WIDTH / 2.;
+        let cursor_y = GAME_HEIGHT / 2. - cursor_position.y;
+        for i in 0..7usize {
+            let x = [
+                GAME_MENU_TRANSFORM_X + BUTTON_POSITION[i][0] - GAME_BUTTON_WIDTH / 2.,
+                GAME_MENU_TRANSFORM_X + BUTTON_POSITION[i][0] + GAME_BUTTON_WIDTH / 2.,
+            ];
+            let y = [
+                GAME_MENU_TRANSFORM_Y + BUTTON_POSITION[i][1] - GAME_BUTTON_HEIGHT / 2.,
+                GAME_MENU_TRANSFORM_Y + BUTTON_POSITION[i][1] + GAME_BUTTON_HEIGHT / 2.,
+            ];
+            if cursor_x > x[0] && cursor_x < x[1] && cursor_y > y[0] && cursor_y < y[1] {
+                game.action = Some(BUTTON_KEY[i]);
+                timer.0.reset();
+                game.update();
+            }
+        }
+        if cursor_x < BLOCK_SIZE * MAP_SIZE_F32 - GAME_WIDTH / 2. {
+            let line1 = |x| 0.5 * (x + GAME_WIDTH / 2. - BLOCK_SIZE * MAP_SIZE_F32 / 2.);
+            let line2 = |x| -0.5 * (x + GAME_WIDTH / 2. - BLOCK_SIZE * MAP_SIZE_F32 / 2.);
+            let result1 = cursor_y - line1(cursor_x);
+            let result2 = cursor_y - line2(cursor_x);
+            match (result1 > 0., result2 > 0.) {
+                (true, true) => {
+                    game.action = Some(KeyCode::ArrowUp);
                 }
+                (true, false) => {
+                    game.action = Some(KeyCode::ArrowLeft);
+                }
+                (false, true) => {
+                    game.action = Some(KeyCode::ArrowRight);
+                }
+                (false, false) => {
+                    game.action = Some(KeyCode::ArrowDown);
+                }
+            }
+            if None != game.action {
+                timer.0.reset();
+                game.update();
             }
         }
     }
